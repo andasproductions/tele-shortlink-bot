@@ -1,0 +1,23 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Env
+.env
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# Virtual environment
+venv/
+.venv/
+
+# Logs
+*.log
+
+# Claude
+.claude
