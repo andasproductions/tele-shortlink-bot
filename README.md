@@ -39,15 +39,14 @@ uv run --env-file .env python shortlink_bot.py
 
 ### 5. Deploy to Railway
 
-1. Push this repo to GitHub
-2. Create a new Railway project from the repo
-3. Add environment variables:
+1. Push this repo to GitHub and create a new Railway project from the repo
+2. Add a **Volume** in Railway, mount path: `/data`
+3. Set these service variables in Railway:
    - `TELEGRAM_BOT_TOKEN`
    - `ADMIN_USER_ID`
    - `ENCRYPTION_KEY`
    - `DB_PATH` → `/data/bot.db`
-4. Add a Volume in Railway, mount path: `/data`
-5. Deploy
+4. Deploy.
 
 ## First run
 
