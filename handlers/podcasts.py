@@ -20,8 +20,8 @@ _MENU_TEXTS = filters.Text(["🔗 New link", "☰ Menu"])
     PODCASTS_MENU,
     ADD_APPLE_ID,
     ADD_DOMAIN_PICK,
-    REMOVE_PICK,
     EDIT_PICK,
+    EDIT_ACTIONS,
     EDIT_NAME,
 ) = range(6)
 
@@ -29,8 +29,7 @@ _MENU_TEXTS = filters.Text(["🔗 New link", "☰ Menu"])
 def _menu_keyboard(has_podcasts: bool = True):
     rows = [[InlineKeyboardButton("➕ Add podcast", callback_data="pod_add")]]
     if has_podcasts:
-        rows.append([InlineKeyboardButton("✏️ Edit podcast nickname", callback_data="pod_edit")])
-        rows.append([InlineKeyboardButton("❌ Remove podcast", callback_data="pod_remove")])
+        rows.append([InlineKeyboardButton("✏️ Edit podcast", callback_data="pod_edit")])
     rows.append([InlineKeyboardButton("↩ Back", callback_data="pod_mainmenu")])
     return InlineKeyboardMarkup(rows)
 
@@ -91,21 +90,8 @@ async def podcasts_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             for p in podcasts
         ]
         rows.append([InlineKeyboardButton("↩ Back", callback_data="editpod:back")])
-        await query.edit_message_text("Which podcast nickname to edit?", reply_markup=InlineKeyboardMarkup(rows))
+        await query.edit_message_text("Which podcast?", reply_markup=InlineKeyboardMarkup(rows))
         return EDIT_PICK
-
-    if query.data == "pod_remove":
-        podcasts = db.list_podcasts()
-        if not podcasts:
-            await query.edit_message_text("No podcasts to remove.", reply_markup=_menu_keyboard(False))
-            return PODCASTS_MENU
-        rows = [
-            [InlineKeyboardButton(p["name"], callback_data=f"rmpod:{p['id']}")]
-            for p in podcasts
-        ]
-        rows.append([InlineKeyboardButton("↩ Back", callback_data="rmpod:back")])
-        await query.edit_message_text("Which podcast to remove?", reply_markup=InlineKeyboardMarkup(rows))
-        return REMOVE_PICK
 
     return PODCASTS_MENU
 
@@ -213,11 +199,54 @@ async def edit_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     context.user_data["editing_podcast_id"] = podcast_id
+    rows = [
+        [InlineKeyboardButton("✏️ Edit nickname", callback_data=f"editpodact:rename:{podcast_id}")],
+        [InlineKeyboardButton("❌ Remove podcast", callback_data=f"editpodact:remove:{podcast_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data="editpodact:back")],
+    ]
     await query.edit_message_text(
-        f"Current nickname: *{podcast['name']}*\n\nType the new nickname:",
+        f"*{podcast['name']}*",
+        reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown",
     )
-    return EDIT_NAME
+    return EDIT_ACTIONS
+
+
+async def edit_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "editpodact:back":
+        podcasts = db.list_podcasts()
+        rows = [
+            [InlineKeyboardButton(p["name"], callback_data=f"editpod:{p['id']}")]
+            for p in podcasts
+        ]
+        rows.append([InlineKeyboardButton("↩ Back", callback_data="editpod:back")])
+        await query.edit_message_text("Which podcast?", reply_markup=InlineKeyboardMarkup(rows))
+        return EDIT_PICK
+
+    _, action, podcast_id = query.data.split(":")
+    podcast_id = int(podcast_id)
+    podcast = db.get_podcast(podcast_id)
+    if not podcast:
+        await query.edit_message_text("Podcast not found.")
+        return ConversationHandler.END
+
+    if action == "rename":
+        context.user_data["editing_podcast_id"] = podcast_id
+        await query.edit_message_text(
+            f"Current nickname: *{podcast['name']}*\n\nType the new nickname:",
+            parse_mode="Markdown",
+        )
+        return EDIT_NAME
+
+    if action == "remove":
+        db.remove_podcast(podcast_id)
+        await query.edit_message_text(f"✅ Removed *{podcast['name']}*.", parse_mode="Markdown")
+        return ConversationHandler.END
+
+    return EDIT_ACTIONS
 
 
 async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -225,33 +254,6 @@ async def edit_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     podcast_id = context.user_data["editing_podcast_id"]
     db.update_podcast_name(podcast_id, name)
     await update.message.reply_text(f"✅ Podcast nickname updated to *{name}*.", parse_mode="Markdown")
-    return ConversationHandler.END
-
-
-async def remove_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "rmpod:back":
-        podcasts = db.list_podcasts()
-        if podcasts:
-            lines = [
-                f'• <a href="https://pod.link/{p["apple_id"]}">{p["name"]}</a> — <code>{p["hostname"]}</code>'
-                for p in podcasts
-            ]
-            text = "Your podcasts:\n\n" + "\n".join(lines)
-        else:
-            text = "No podcasts saved yet."
-        await query.edit_message_text(text, reply_markup=_menu_keyboard(bool(podcasts)), parse_mode="HTML")
-        return PODCASTS_MENU
-
-    podcast_id = int(query.data.split(":")[1])
-    podcast = db.get_podcast(podcast_id)
-    if podcast:
-        db.remove_podcast(podcast_id)
-        await query.edit_message_text(f"✅ Removed *{podcast['name']}*.", parse_mode="Markdown")
-    else:
-        await query.edit_message_text("Podcast not found.")
     return ConversationHandler.END
 
 
@@ -268,11 +270,11 @@ def podcasts_handler() -> ConversationHandler:
             CallbackQueryHandler(podcasts_entry, pattern="^menu:podcasts$"),
         ],
         states={
-            PODCASTS_MENU: [CallbackQueryHandler(podcasts_menu, pattern="^pod_(add|edit|remove|mainmenu)$")],
+            PODCASTS_MENU: [CallbackQueryHandler(podcasts_menu, pattern="^pod_(add|edit|mainmenu)$")],
             ADD_APPLE_ID: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~_MENU_TEXTS, add_apple_id)],
             ADD_DOMAIN_PICK: [CallbackQueryHandler(add_domain_pick, pattern="^poddom:")],
-            REMOVE_PICK: [CallbackQueryHandler(remove_pick, pattern="^rmpod:")],
             EDIT_PICK: [CallbackQueryHandler(edit_pick, pattern="^editpod:")],
+            EDIT_ACTIONS: [CallbackQueryHandler(edit_actions, pattern="^editpodact:")],
             EDIT_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~_MENU_TEXTS, edit_name)],
         },
         fallbacks=[

@@ -19,8 +19,8 @@ _MENU_TEXTS = filters.Text(["🔗 New link", "☰ Menu"])
     DOMAINS_MENU,
     ADD_API_KEY,
     PICK_SHORTIO_DOMAINS,
-    REMOVE_PICK,
     EDIT_PICK,
+    EDIT_ACTIONS,
     EDIT_NICKNAME,
     VIEW_LINKS_PICK,
     VIEW_LINKS,
@@ -39,8 +39,7 @@ def _menu_keyboard(has_domains: bool = True):
         rows.append([InlineKeyboardButton("🔗 View links", callback_data="dom_viewlinks")])
     rows.append([InlineKeyboardButton("➕ Add domain", callback_data="dom_add")])
     if has_domains:
-        rows.append([InlineKeyboardButton("✏️ Edit domain nickname", callback_data="dom_edit")])
-        rows.append([InlineKeyboardButton("❌ Remove domain", callback_data="dom_remove")])
+        rows.append([InlineKeyboardButton("✏️ Edit domain", callback_data="dom_edit")])
     rows.append([InlineKeyboardButton("↩ Back", callback_data="dom_mainmenu")])
     return InlineKeyboardMarkup(rows)
 
@@ -122,21 +121,8 @@ async def domains_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             for d in domains
         ]
         rows.append([InlineKeyboardButton("↩ Back", callback_data="editdom:back")])
-        await query.edit_message_text("Which domain to rename?", reply_markup=InlineKeyboardMarkup(rows))
+        await query.edit_message_text("Which domain?", reply_markup=InlineKeyboardMarkup(rows))
         return EDIT_PICK
-
-    if query.data == "dom_remove":
-        domains = db.list_domains()
-        if not domains:
-            await query.edit_message_text("No domains to remove.", reply_markup=_menu_keyboard(False))
-            return DOMAINS_MENU
-        rows = [
-            [InlineKeyboardButton(d['nickname'], callback_data=f"rmdom:{d['id']}")]
-            for d in domains
-        ]
-        rows.append([InlineKeyboardButton("↩ Back", callback_data="rmdom:back")])
-        await query.edit_message_text("Which domain to remove?", reply_markup=InlineKeyboardMarkup(rows))
-        return REMOVE_PICK
 
     return DOMAINS_MENU
 
@@ -245,11 +231,55 @@ async def edit_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     context.user_data["editing_domain_id"] = domain_id
+    rows = [
+        [InlineKeyboardButton("✏️ Edit nickname", callback_data=f"editact:rename:{domain_id}")],
+        [InlineKeyboardButton("❌ Remove domain", callback_data=f"editact:remove:{domain_id}")],
+        [InlineKeyboardButton("↩ Back", callback_data="editact:back")],
+    ]
+    label = domain['nickname'] if domain['nickname'] != domain['hostname'] else f"`{domain['hostname']}`"
     await query.edit_message_text(
-        f"Current nickname: *{domain['nickname']}*\n\nType the new nickname:",
+        f"*{label}*",
+        reply_markup=InlineKeyboardMarkup(rows),
         parse_mode="Markdown",
     )
-    return EDIT_NICKNAME
+    return EDIT_ACTIONS
+
+
+async def edit_actions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "editact:back":
+        domains = db.list_domains()
+        rows = [
+            [InlineKeyboardButton(d['nickname'], callback_data=f"editdom:{d['id']}")]
+            for d in domains
+        ]
+        rows.append([InlineKeyboardButton("↩ Back", callback_data="editdom:back")])
+        await query.edit_message_text("Which domain?", reply_markup=InlineKeyboardMarkup(rows))
+        return EDIT_PICK
+
+    _, action, domain_id = query.data.split(":")
+    domain_id = int(domain_id)
+    domain = db.get_domain(domain_id)
+    if not domain:
+        await query.edit_message_text("Domain not found.")
+        return ConversationHandler.END
+
+    if action == "rename":
+        context.user_data["editing_domain_id"] = domain_id
+        await query.edit_message_text(
+            f"Current nickname: *{domain['nickname']}*\n\nType the new nickname:",
+            parse_mode="Markdown",
+        )
+        return EDIT_NICKNAME
+
+    if action == "remove":
+        db.remove_domain(domain_id)
+        await query.edit_message_text(f"✅ Removed *{domain['nickname']}*.", parse_mode="Markdown")
+        return ConversationHandler.END
+
+    return EDIT_ACTIONS
 
 
 async def edit_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -257,27 +287,6 @@ async def edit_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     domain_id = context.user_data["editing_domain_id"]
     db.update_domain_nickname(domain_id, nickname)
     await update.message.reply_text(f"✅ Nickname updated to *{nickname}*.", parse_mode="Markdown")
-    return ConversationHandler.END
-
-
-async def remove_pick(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    query = update.callback_query
-    await query.answer()
-
-    if query.data == "rmdom:back":
-        domains = db.list_domains()
-        lines = [f"• {d['nickname']} — `{d['hostname']}`" if d['nickname'] != d['hostname'] else f"• `{d['hostname']}`" for d in domains] if domains else ["No domains saved yet."]
-        text = "\n".join(lines)
-        await query.edit_message_text(text, reply_markup=_menu_keyboard(bool(domains)), parse_mode="Markdown")
-        return DOMAINS_MENU
-
-    domain_id = int(query.data.split(":")[1])
-    domain = db.get_domain(domain_id)
-    if domain:
-        db.remove_domain(domain_id)
-        await query.edit_message_text(f"✅ Removed *{domain['nickname']}*.", parse_mode="Markdown")
-    else:
-        await query.edit_message_text("Domain not found.")
     return ConversationHandler.END
 
 
@@ -379,11 +388,11 @@ def domains_handler() -> ConversationHandler:
             CallbackQueryHandler(domains_entry, pattern="^menu:domains$"),
         ],
         states={
-            DOMAINS_MENU: [CallbackQueryHandler(domains_menu, pattern="^dom_(add|edit|remove|mainmenu|viewlinks)$")],
+            DOMAINS_MENU: [CallbackQueryHandler(domains_menu, pattern="^dom_(add|edit|mainmenu|viewlinks)$")],
             ADD_API_KEY: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~_MENU_TEXTS, add_api_key)],
             PICK_SHORTIO_DOMAINS: [CallbackQueryHandler(pick_shortio_domains, pattern="^sdom:")],
-            REMOVE_PICK: [CallbackQueryHandler(remove_pick, pattern="^rmdom:")],
             EDIT_PICK: [CallbackQueryHandler(edit_pick, pattern="^editdom:")],
+            EDIT_ACTIONS: [CallbackQueryHandler(edit_actions, pattern="^editact:")],
             EDIT_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~_MENU_TEXTS, edit_nickname)],
             VIEW_LINKS_PICK: [CallbackQueryHandler(view_links_pick, pattern="^vl_dom:")],
             VIEW_LINKS: [CallbackQueryHandler(view_links, pattern="^vl:")],
