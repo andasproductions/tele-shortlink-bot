@@ -1,13 +1,13 @@
 # tele-shortlink-bot
 
-A private Telegram bot for creating [Short.io](https://short.io) shortlinks, with native support for [pod.link](https://pod.link) podcast episode URLs.
+A [Telegram](https://telegram.org/) bot for creating [Short.io](https://short.io) shortlinks, with native support for [Pod.link](https://pod.link) podcast episode URLs.
 
 ## Features
 
-- 🎙 Universal podcast episode shortlinks via [pod.link](https://pod.link)
-- 📋 Multiple [Short.io](https://short.io) domains across multiple accounts
-- 🔒 Allowlist-based access (admin-managed) — domains, podcasts, and links are shared across all allowed users
-- 🔑 Short.io API keys encrypted at rest
+- 🎙 Create universal [Pod.link](https://pod.link) shortlinks for your podcast episodes
+- 📋 Manage multiple [Short.io](https://short.io) domains across multiple accounts
+- 🔒 Grant other Telegram users access to your bot
+- 🔑 API keys encrypted at rest
 - 💾 SQLite persistence via Railway volume
 
 ## Setup
