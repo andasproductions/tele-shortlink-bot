@@ -5,5 +5,5 @@ requires-python = ">=3.10"
 dependencies = [
     "python-telegram-bot==22.7",
     "httpx==0.28.1",
-    "cryptography==46.0.6",
+    "cryptography==46.0.7",
 ]
